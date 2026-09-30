@@ -107,6 +107,16 @@ document.getElementById('marcaBateria').addEventListener('change',e=>{const item
 /* Entregables: no se permite abrir una vista previa si faltan datos del proyecto. */
 (()=>{
   document.querySelector('.phases')?.remove();
+  const labels={
+    '00 · CLIENTE Y PROYECTO':'Cliente y proyecto','01 · DEMANDA Y RECURSO':'Demanda y recurso','02 · MÓDULO FV':'Módulo fotovoltaico','03 · INVERSOR':'Inversor',
+    '04 · Tipo de sistema y baterías':'Tipo de sistema y baterías','07C · EVALUACIÓN ECONÓMICA':'Evaluación económica','07 · UBICACIÓN DEL PROYECTO':'Ubicación del proyecto',
+    'Fase 7 · 7A · 7B — Resultados para cliente':'Resultados para el cliente','07 · Ubicación del proyecto':'Ubicación del proyecto','07A · Recurso solar NASA':'Recurso solar NASA',
+    '07B · Propuesta técnica':'Propuesta técnica','07C · Evaluación económica':'Evaluación económica','08 · Entrega del proyecto':'Entrega del proyecto',
+    'Las seis fases del diseño técnico':'Proceso de diseño técnico'
+  };
+  document.querySelectorAll('legend,h3,h4').forEach(el=>{const label=el.textContent.trim();if(labels[label])el.textContent=labels[label]});
+  const hint=document.querySelector('.form .hint');if(hint)hint.textContent='Completa los datos del proyecto y selecciona el sitio en el mapa.';
+  document.querySelectorAll('.steps > div').forEach(el=>{el.innerHTML=el.innerHTML.replace(/^\s*\d+\s*/, '')});
   document.head.insertAdjacentHTML('beforeend',`<style>.missing-field{border-color:#ff7a18!important;box-shadow:0 0 0 2px #ff7a1840!important}.delivery-alert{position:fixed;z-index:10002;right:22px;bottom:22px;max-width:350px;padding:14px 16px;border:1px solid #ffad61;border-radius:10px;background:#292b31;color:#fff;box-shadow:0 12px 32px #0009;font:14px Segoe UI,Arial}.delivery-alert b{display:block;color:#ffc178;margin-bottom:5px}</style>`);
   const required=[
     ['cliente','Nombre del cliente'],['consumo','Consumo mensual'],['hsp','Horas sol pico'],['cobertura','Cobertura'],['pr','Performance ratio'],
