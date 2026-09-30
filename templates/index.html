@@ -63,4 +63,44 @@ document.getElementById('marcaBateria').addEventListener('change',e=>{const item
 </script><script>
 /* Cálculo independiente de la tarjeta, para actualizarla inmediatamente al modificar entradas. */
 (()=>{const n=id=>Number(document.getElementById(id)?.value)||0,put=(id,text)=>{const el=document.getElementById(id);if(el)el.textContent=text},cop=value=>'$ '+Math.round(value).toLocaleString('es-CO')+' COP';function refreshComparison(){const c=n('consumo'),cv=n('cobertura')/100,h=n('hsp'),pr=n('pr'),wp=n('wp'),pdc=Math.ceil((c*cv/30)/(h*pr)*1000/wp)*wp/1000,cost=pdc*n('costoKwp'),mode=document.getElementById('modoSistema').value,brand=document.getElementById('marcaBateria').value,auto=Math.max(.25,n('autonomiaDias')),dod=Math.max(.5,Math.min(.95,n('profundidadDescarga')/100)),eff=Math.max(.7,Math.min(.98,n('eficienciaBateria')/100)),v=Math.max(12,n('bateriaV')),ah=Math.max(20,n('bateriaAh')),per=v*ah/1000,need=(c*cv/30)*auto/(dod*eff),series=Math.max(1,Math.ceil(48/v)),count=series*Math.ceil(Math.ceil(need/per)/series),nominal=count*per,usable=nominal*dod*eff,actual=usable/(c*cv/30),bank=nominal*n('costoBateriaKwh');put('gridPrice',cop(cost));put('batteryPrice',mode==='off-grid'?cop(bank):'No aplica');put('storageTotal',cop(mode==='off-grid'?cost+bank:cost));put('batteryCompareTitle',mode==='off-grid'?'Alternativa off-grid con respaldo':'Sistema conectado a red');put('batteryCompareRef',mode==='off-grid'?brand+' · '+count+' unidades':'Sin banco de baterías seleccionado.');put('batteryCompareDetail',mode==='off-grid'?`${series}S × ${Math.ceil(count/series)}P · ${nominal.toFixed(2)} kWh nominales · ${usable.toFixed(2)} kWh útiles · ${actual.toFixed(2)} días de autonomía. Incremento estimado: ${cop(bank)}.`:'Selecciona “Off-grid — con baterías” para comparar la inversión y el respaldo.')}['consumo','cobertura','hsp','pr','wp','modoSistema','marcaBateria','autonomiaDias','profundidadDescarga','eficienciaBateria','bateriaV','bateriaAh','costoBateriaKwh','costoKwp'].forEach(id=>{const el=document.getElementById(id);el?.addEventListener('input',refreshComparison);el?.addEventListener('change',refreshComparison)});refreshComparison()})();
+</script><script>
+/* Ubicación: HSP de NASA se normaliza hacia arriba a un decimal y el diálogo se cierra al confirmar. */
+(()=>{
+  const confirm=document.getElementById('confirmAddress');
+  if(!confirm)return;
+  confirm.onclick=async()=>{
+    const query=document.getElementById('search'), status=document.getElementById('mapStatus');
+    const address=query.value.trim();
+    if(!address){status.textContent='Escribe una dirección antes de confirmarla.';return}
+    status.textContent='Obteniendo coordenadas y consultando irradiación solar NASA POWER…';
+    document.getElementById('nasaEvidence').textContent='Conectando con NASA POWER…';
+    try{
+      const place=await fetch('/api/geocode?q='+encodeURIComponent(address)).then(r=>r.json());
+      if(place.error)throw new Error(place.error);
+      const nasa=await fetch(`/api/nasa-solar?lat=${place.lat}&lng=${place.lng}`).then(r=>r.json());
+      if(nasa.error)throw new Error(nasa.error);
+      const hsp=Math.ceil(Number(nasa.hsp)*10)/10;
+      document.getElementById('address').value=place.label;
+      document.getElementById('lat').value=place.lat;
+      document.getElementById('lng').value=place.lng;
+      document.getElementById('site').textContent=place.label;
+      document.getElementById('coordinates').textContent=`Coordenadas verificadas: ${Number(place.lat).toFixed(5)}, ${Number(place.lng).toFixed(5)}`;
+      document.getElementById('hsp').value=hsp.toFixed(1);
+      document.getElementById('solarStatus').textContent=`${hsp.toFixed(1)} kWh/m²/día`;
+      document.getElementById('nasaEvidence').textContent=`Consulta confirmada · ${nasa.period} · HSP ajustada a ${hsp.toFixed(1)} kWh/m²/día`;
+      document.getElementById('form').dispatchEvent(new Event('submit',{cancelable:true}));
+      document.getElementById('proposal').textContent='Lista para presentar';
+      status.textContent='Dirección y recurso solar NASA POWER guardados.';
+    }catch(error){
+      document.getElementById('address').value=address;
+      document.getElementById('site').textContent=address;
+      document.getElementById('coordinates').textContent='Dirección confirmada. No fue posible recuperar coordenadas ahora.';
+      document.getElementById('solarStatus').textContent='Mantiene HSP manual';
+      document.getElementById('nasaEvidence').textContent='Consulta NASA no disponible: '+error.message;
+      document.getElementById('form').dispatchEvent(new Event('submit',{cancelable:true}));
+      status.textContent='Dirección guardada; conserva HSP manual hasta que NASA POWER esté disponible.';
+    }
+    document.getElementById('modal').classList.remove('show');
+  };
+})();
 </script></body></html>
