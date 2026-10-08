@@ -82,9 +82,15 @@ def _number(source, key, default, minimum=None, maximum=None):
     return value
 
 def battery_design(d, source):
-    """Dimensionamiento referencial de banco LiFePO4 para el modo autónomo."""
+    """Dimensiona el banco para topologías off-grid e híbrida.
+
+    En híbrido la red cubre la energía no respaldada. El banco se calcula sobre
+    la fracción de respaldo elegida, sin ser inferior a las cargas críticas.
+    """
     mode = source.get("modoSistema", "on-grid").lower()
     offgrid = mode == "off-grid"
+    hybrid = mode in ("híbrido", "hibrido", "hybrid")
+    storage = offgrid or hybrid
     brand = source.get("marcaBateria", "Dyness A48100")
     default_v, default_ah = BATTERY_CATALOG.get(brand, BATTERY_CATALOG["Dyness A48100"])
     voltage = _number(source, "bateriaV", default_v, 12, 60)
@@ -92,21 +98,29 @@ def battery_design(d, source):
     autonomy = _number(source, "autonomiaDias", 1, .25, 5)
     dod = _number(source, "profundidadDescarga", 80, 50, 95) / 100
     efficiency = _number(source, "eficienciaBateria", 90, 70, 98) / 100
+    support_fraction = 1.0 if offgrid else _number(source, "fraccionRespaldo", 50, 0, 100) / 100
+    critical_fraction = _number(source, "cargasCriticas", 30, 0, 100) / 100
     daily = d["consumo"] * d["cobertura"] / 100 / 30
     per_battery = voltage * ah / 1000
-    required = daily * autonomy / (dod * efficiency)
-    raw_count = max(1, ceil(required / per_battery))
+    supported_energy = daily * autonomy * support_fraction
+    critical_energy = daily * autonomy * critical_fraction
+    required_energy = max(supported_energy, critical_energy) if storage else 0
+    required = required_energy / (dod * efficiency) if storage else 0
+    raw_count = max(1, ceil(required / per_battery)) if storage else 0
     series = max(1, ceil(48 / voltage))
-    parallel = ceil(raw_count / series)
-    count = series * parallel
+    parallel = ceil(raw_count / series) if storage else 0
+    count = series * parallel if storage else 0
     nominal = count * per_battery
     usable = nominal * dod * efficiency
     actual_autonomy = usable / daily if daily else 0
-    return {"offgrid": offgrid, "mode": "off-grid" if offgrid else "on-grid", "brand": brand,
+    return {"offgrid": offgrid, "hybrid": hybrid, "storage": storage,
+            "mode": "off-grid" if offgrid else ("híbrido" if hybrid else "on-grid"), "brand": brand,
             "voltage": voltage, "ah": ah, "autonomy": autonomy, "dod": dod, "efficiency": efficiency,
             "daily": daily, "per_battery": per_battery, "required": required, "count": count,
             "series": series, "parallel": parallel, "nominal": nominal, "usable": usable,
-            "actual_autonomy": actual_autonomy}
+            "actual_autonomy": actual_autonomy, "support_fraction": support_fraction,
+            "critical_fraction": critical_fraction, "supported_energy": supported_energy,
+            "critical_energy": critical_energy, "required_energy": required_energy}
 
 def _build_excel_fallback(payload):
     """Libro compatible con servidores web sin el runtime local de Codex."""
@@ -132,7 +146,7 @@ def _build_excel_fallback(payload):
     table(calc, 5, ["Variable", "Valor", "Unidad"], [("Consumo mensual", payload["consumo"], "kWh/mes"), ("Horas sol pico", payload["hsp"], "h/día"), ("Cobertura", payload["coverage"], "%"), ("Performance ratio", payload["pr"], "0-1"), ("Potencia módulo", payload["moduleWp"], "Wp"), ("Tensión máxima DC", payload["vdcMax"], "V")])
     table(calc, 14, ["Resultado", "Valor", "Unidad"], [("Demanda diaria", payload["consumo"] * payload["coverage"] / 30, "kWh/día"), ("Potencia FV", payload["pdc"], "kWp"), ("Módulos", payload["modules"], "unidades"), ("Producción anual", payload["annual"], "kWh/año")])
     setup(bat, "Banco de baterías y respaldo energético")
-    table(bat, 5, ["Variable", "Valor", "Unidad"], [("Tipo de sistema", payload.get("mode", "on-grid"), ""), ("Marca / referencia", payload.get("batteryBrand", "No aplica"), ""), ("Autonomía solicitada", payload.get("autonomy", 0), "días"), ("Tensión por batería", payload.get("batteryV", 0), "V"), ("Capacidad por batería", payload.get("batteryAh", 0), "Ah"), ("Banco seleccionado", payload.get("batteryCount", 0), "unidades"), ("Configuración", f"{payload.get('batterySeries', 0)}S x {payload.get('batteryParallel', 0)}P", ""), ("Capacidad nominal", payload.get("batteryNominal", 0), "kWh"), ("Capacidad útil", payload.get("batteryUsable", 0), "kWh"), ("Autonomía calculada", payload.get("batteryAutonomy", 0), "días")])
+    table(bat, 5, ["Variable", "Valor", "Unidad"], [("Tipo de sistema", payload.get("mode", "on-grid"), ""), ("Marca / referencia", payload.get("batteryBrand", "No aplica"), ""), ("Autonomía solicitada", payload.get("autonomy", 0), "días"), ("Respaldo configurado", payload.get("supportFraction", 0) * 100, "%"), ("Cargas críticas", payload.get("criticalFraction", 0) * 100, "% de demanda"), ("Energía mínima respaldada", payload.get("batteryRequiredEnergy", 0), "kWh"), ("Tensión por batería", payload.get("batteryV", 0), "V"), ("Capacidad por batería", payload.get("batteryAh", 0), "Ah"), ("Banco seleccionado", payload.get("batteryCount", 0), "unidades"), ("Configuración", f"{payload.get('batterySeries', 0)}S x {payload.get('batteryParallel', 0)}P", ""), ("Capacidad nominal", payload.get("batteryNominal", 0), "kWh"), ("Capacidad útil", payload.get("batteryUsable", 0), "kWh"), ("Autonomía calculada", payload.get("batteryAutonomy", 0), "días")])
     output = BytesIO(); wb.save(output); return output.getvalue()
 
 def report_image(r):
@@ -253,6 +267,8 @@ def spreadsheet():
         "batterySeries": battery["series"], "batteryParallel": battery["parallel"],
         "batteryNominal": battery["nominal"], "batteryUsable": battery["usable"],
         "batteryAutonomy": battery["actual_autonomy"], "batteryRequired": battery["required"],
+        "supportFraction": battery["support_fraction"], "criticalFraction": battery["critical_fraction"],
+        "batteryRequiredEnergy": battery["required_energy"],
     }
     node = os.environ.get("FVX_NODE", r"C:\Users\Usuario\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe")
     if not os.path.exists(node): node = "node"
@@ -284,8 +300,10 @@ def spreadsheet_preview():
         ("Configuración", f"{r['strings']} x {r['modulos_serie']}"), ("Inversor AC mínimo", f"{r['pac']} kWac"),
         ("Producción anual estimada", f"{r['energia_anual']} kWh/año"),
     ]
-    if battery["offgrid"]:
+    if battery["storage"]:
         rows.extend([("Banco de baterías", f"{battery['count']} × {battery['brand']}"),
+                     ("Respaldo / cargas críticas", f"{fmt(battery['support_fraction']*100, 0)} % / {fmt(battery['critical_fraction']*100, 0)} %"),
+                     ("Energía mínima respaldada", f"{fmt(battery['required_energy'])} kWh"),
                      ("Energía útil disponible", f"{fmt(battery['usable'])} kWh"),
                      ("Autonomía estimada", f"{fmt(battery['actual_autonomy'])} días")])
     inputs = [("Tipo de sistema", battery["mode"]), ("Consumo mensual", f"{fmt(d['consumo'])} kWh/mes"), ("HSP", f"{fmt(d['hsp'], 4)} h/día"),
@@ -418,7 +436,7 @@ def _draw_location_and_diagram(pdf, r, address, lat, lng, page_title, calculatio
         ("ARREGLO FV", f"{r['strings']} x {r['modulos_serie']} módulos - {r['pdc']} kWp"),
         ("PROTECCIÓN DC", "Fusible, seccionador y DPS DC"),
     ]
-    if battery and battery["offgrid"]:
+    if battery and battery["storage"]:
         nodes.extend([("INVERSOR HÍBRIDO / OFF-GRID", f"Potencia mínima {r['pac']} kWac"),
                       ("BANCO DE BATERÍAS", f"{battery['count']} x {battery['brand']} - {fmt(battery['usable'])} kWh útiles"),
                       ("TABLERO AC Y CARGAS", "Breaker, DPS AC y cargas prioritarias")])
@@ -442,7 +460,7 @@ def _draw_location_and_diagram(pdf, r, address, lat, lng, page_title, calculatio
         "La implantación final debe confirmar área disponible, sombras, estructura y distancias de seguridad.",
         "El diagrama es referencial; el diseño definitivo requiere verificación de protecciones y normativa aplicable.",
     ]
-    if battery and battery["offgrid"]:
+    if battery and battery["storage"]:
         lines.append(f"Banco LiFePO4 referencial: {battery['count']} unidades, {fmt(battery['usable'])} kWh útiles y {fmt(battery['actual_autonomy'])} días de autonomía.")
     for line in lines:
         pdf.drawString(52, y, _safe(line)); y -= 18
@@ -470,7 +488,8 @@ def calculation_memory_pdf():
     except ValueError as exc:
         return Response(str(exc), status=400)
     battery = battery_design(d, request.args)
-    system_name = "Sistema fotovoltaico off-grid con almacenamiento" if battery["offgrid"] else "Sistema fotovoltaico on-grid"
+    system_name = ("Sistema fotovoltaico off-grid con almacenamiento" if battery["offgrid"]
+                   else ("Sistema fotovoltaico híbrido con red y respaldo" if battery["hybrid"] else "Sistema fotovoltaico on-grid"))
     buffer = BytesIO(); pdf = canvas.Canvas(buffer, pagesize=A4); page_h = A4[1]
     _header(pdf, "Memoria de cálculo fotovoltaico", 1)
     pdf.setFillColor(TEXT); pdf.setFont("Helvetica-Bold", 9.5); pdf.drawString(52, page_h - 150, "Proyecto:")
@@ -497,10 +516,12 @@ def calculation_memory_pdf():
         ("Inversor mínimo", f"{r['pac']} kWac"), ("Producción anual", f"{r['energia_anual']} kWh/año"),
         ("Voc string en frío", f"{r['voc_string']} V"),
     ], [225, 230])
-    if battery["offgrid"]:
+    if battery["storage"]:
         y = _section(pdf, y - 20, "Almacenamiento y respaldo nocturno")
         _table(pdf, 70, y, 455, ["Variable", "Resultado"], [
             ("Marca / referencia", battery["brand"]), ("Autonomía solicitada", f"{fmt(battery['autonomy'])} días"),
+            ("Respaldo / cargas críticas", f"{fmt(battery['support_fraction']*100, 0)} % / {fmt(battery['critical_fraction']*100, 0)} %"),
+            ("Energía mínima a respaldar", f"{fmt(battery['required_energy'])} kWh"),
             ("Profundidad de descarga / eficiencia", f"{fmt(battery['dod']*100, 0)} % / {fmt(battery['efficiency']*100, 0)} %"),
             ("Banco seleccionado", f"{battery['count']} unidades ({battery['series']}S x {battery['parallel']}P)"),
             ("Capacidad nominal / útil", f"{fmt(battery['nominal'])} / {fmt(battery['usable'])} kWh"),
@@ -529,7 +550,7 @@ def quotation_pdf():
     try: self_consumption = max(0, min(100, float(request.args.get("autoconsumo", 90) or 90))) / 100
     except ValueError: self_consumption = .90
     installed = float(r["pdc"].replace(".", "").replace(",", ".")); pv_investment = installed * cost_kwp
-    battery_cost = battery["nominal"] * battery_cost_kwh if battery["offgrid"] else 0
+    battery_cost = battery["nominal"] * battery_cost_kwh if battery["storage"] else 0
     investment = pv_investment + battery_cost
     module_cost = pv_investment * .34; inverter_cost = pv_investment * .18; structure_cost = pv_investment * .14; protections_cost = pv_investment * .11; installation_cost = pv_investment - module_cost - inverter_cost - structure_cost - protections_cost
     annual_baseline = d["consumo"] * 12
@@ -539,7 +560,8 @@ def quotation_pdf():
     annual_savings = annual_pv_usable * tariff; payback = investment / annual_savings if annual_savings else 0
     buffer = BytesIO(); pdf = canvas.Canvas(buffer, pagesize=A4); page_h = A4[1]
     _header(pdf, "COTIZACIÓN FORMAL - SISTEMA FOTOVOLTAICO", 1)
-    system_name = "Sistema fotovoltaico off-grid con baterías" if battery["offgrid"] else "Sistema fotovoltaico on-grid"
+    system_name = ("Sistema fotovoltaico off-grid con baterías" if battery["offgrid"]
+                   else ("Sistema fotovoltaico híbrido con red y baterías" if battery["hybrid"] else "Sistema fotovoltaico on-grid"))
     meta = [("Proveedor:", "TWE Welt Energy"), ("Cliente:", client), ("Proyecto:", system_name), ("Predio:", address), ("Vigencia:", "30 días calendario")]
     y = page_h - 150
     for label, value in meta:
@@ -549,12 +571,12 @@ def quotation_pdf():
     y = _section(pdf, y - 34, "Equipos, materiales y servicios")
     rows = [
         (f"Módulo FV {fmt(d['modulo_wp'], 0)} Wp", str(r["modulos"]), "und", f"$ {module_cost/r['modulos']:,.0f}", f"$ {module_cost:,.0f}"),
-        (("Inversor híbrido / off-grid" if battery["offgrid"] else "Inversor on-grid") + " y monitoreo", "1", "und", f"$ {inverter_cost:,.0f}", f"$ {inverter_cost:,.0f}"),
+        (("Inversor híbrido / off-grid" if battery["storage"] else "Inversor on-grid") + " y monitoreo", "1", "und", f"$ {inverter_cost:,.0f}", f"$ {inverter_cost:,.0f}"),
         ("Estructura de montaje, fijaciones y rieles", "1", "kit", f"$ {structure_cost:,.0f}", f"$ {structure_cost:,.0f}"),
         ("Protecciones DC/AC, cableado y puesta a tierra", "1", "kit", f"$ {protections_cost:,.0f}", f"$ {protections_cost:,.0f}"),
         ("Instalación, pruebas y puesta en marcha", "1", "serv", f"$ {installation_cost:,.0f}", f"$ {installation_cost:,.0f}"),
     ]
-    if battery["offgrid"]:
+    if battery["storage"]:
         rows.insert(2, (f"Batería {battery['brand']} {fmt(battery['voltage'], 0)} V {fmt(battery['ah'], 0)} Ah", str(battery["count"]), "und", f"$ {battery_cost/battery['count']:,.0f}", f"$ {battery_cost:,.0f}"))
     y = _table(pdf, 48, y, 500, ["Descripción", "Cant.", "Und.", "Vr. unitario", "Vr. total"], rows, [220, 40, 42, 98, 100], row_height=24)
     y = _section(pdf, y - 28, "Resumen económico y soporte tarifario")

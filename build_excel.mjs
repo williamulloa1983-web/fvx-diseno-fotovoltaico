@@ -70,7 +70,7 @@ summary.freezePanes.freezeRows(3);
 calc.showGridLines = false;
 calc.tabColor = orange;
 setWidths(calc);
-calc.mergeCells("A2:D2"); calc.getRange("A2").values = [["Cálculo técnico fotovoltaico on-grid"]];
+calc.mergeCells("A2:D2"); calc.getRange("A2").values = [[`Cálculo técnico fotovoltaico ${data.mode || "on-grid"}`]];
 calc.getRange("A2:D2").format = { font: { name: "Arial", size: 15, bold: true, color: navy }, verticalAlignment: "center" };
 calc.getRange("A3:D3").format.borders = { bottom: { style: "medium", color: orange } };
 heading(calc, "A5:C5", "Entradas editables");
@@ -126,22 +126,24 @@ batteries.mergeCells("A2:D2"); batteries.getRange("A2").values = [["Banco de bat
 batteries.getRange("A2:D2").format = { font: { name: "Arial", size: 15, bold: true, color: navy }, verticalAlignment: "center" };
 batteries.getRange("A3:D3").format.borders = { bottom: { style: "medium", color: orange } };
 heading(batteries, "A5:C5", "Configuración de almacenamiento");
-batteries.getRange("A6:C17").values = [
+batteries.getRange("A6:C20").values = [
   ["Variable", "Valor", "Unidad"], ["Tipo de sistema", data.mode || "on-grid", ""],
   ["Marca / referencia", data.batteryBrand || "No aplica", ""], ["Autonomía solicitada", data.autonomy || 0, "días"],
+  ["Respaldo configurado", (data.supportFraction || 0) * 100, "%"], ["Cargas críticas", (data.criticalFraction || 0) * 100, "% de demanda"],
+  ["Energía mínima a respaldar", data.batteryRequiredEnergy || 0, "kWh"],
   ["Tensión de batería", data.batteryV || 0, "V"], ["Capacidad de batería", data.batteryAh || 0, "Ah"],
   ["Profundidad de descarga", data.dod || 0, "%"], ["Eficiencia del banco", data.batteryEfficiency || 0, "%"],
-  ["Capacidad requerida", data.batteryRequired || 0, "kWh"], ["Baterías seleccionadas", data.batteryCount || 0, "unidades"],
+  ["Capacidad nominal requerida", data.batteryRequired || 0, "kWh"], ["Baterías seleccionadas", data.batteryCount || 0, "unidades"],
   ["Configuración", `${data.batterySeries || 0}S x ${data.batteryParallel || 0}P`, ""], ["Capacidad útil estimada", data.batteryUsable || 0, "kWh"],
 ];
 batteries.getRange("A6:C6").format = { fill: navy, font: { name: "Arial", size: 10, bold: true, color: "#FFFFFF" } };
-batteries.getRange("A6:C17").format.font = baseFont; tableStyle(batteries, "A6:C17");
-batteries.getRange("B7:B17").format.fill = "#F1FBF7";
-batteries.getRange("B9:B16").format.numberFormat = "#,##0.00";
-batteries.getRange("A19:D20").values = [["Autonomía real calculada", data.batteryAutonomy || 0, "días", ""], ["Nota", "Valores referenciales. Confirmar BMS, compatibilidad del inversor, protecciones y ficha técnica.", "", ""]];
-batteries.getRange("A19:D20").format = { font: baseFont, wrapText: true, verticalAlignment: "center" }; tableStyle(batteries, "A19:D20");
-batteries.getRange("A19:A20").format.font = { name: "Arial", size: 10, bold: true, color: navy };
-batteries.getRange("B19").format.numberFormat = "#,##0.00";
+batteries.getRange("A6:C20").format.font = baseFont; tableStyle(batteries, "A6:C20");
+batteries.getRange("B7:B20").format.fill = "#F1FBF7";
+batteries.getRange("B9:B19").format.numberFormat = "#,##0.00";
+batteries.getRange("A22:D23").values = [["Autonomía real calculada", data.batteryAutonomy || 0, "días", ""], ["Nota", "En sistema híbrido la red atiende la energía no respaldada. Confirmar BMS, compatibilidad del inversor, protecciones y ficha técnica.", "", ""]];
+batteries.getRange("A22:D23").format = { font: baseFont, wrapText: true, verticalAlignment: "center" }; tableStyle(batteries, "A22:D23");
+batteries.getRange("A22:A23").format.font = { name: "Arial", size: 10, bold: true, color: navy };
+batteries.getRange("B22").format.numberFormat = "#,##0.00";
 batteries.freezePanes.freezeRows(5);
 
 wb.recalculate();
