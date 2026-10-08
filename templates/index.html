@@ -32,7 +32,7 @@ const tariffInput=document.getElementById('tarifa');tariffInput.value='';tariffI
 document.getElementById('printProposal').textContent='Vista previa de cotización PDF';
 document.getElementById('printProposal').insertAdjacentHTML('beforebegin','<button type="button" id="downloadMemory" class="map-btn">Vista previa de memoria PDF</button>');
 document.querySelector('.actions').style.flexWrap='wrap';
-function documentParameters(){return new URLSearchParams({consumo:d.c,hsp:d.h,cobertura:d.cv*100,pr:d.pr,modulo_wp:d.wp,voc:d.voc,coef_voc:d.co,temp_min:d.t,vdc_max:d.vm,dcac:d.ra,address:document.getElementById('address').value,lat:document.getElementById('lat').value,lng:document.getElementById('lng').value,cliente:document.getElementById('cliente').value,nasa:document.getElementById('nasaEvidence').textContent,operador:document.getElementById('operador').value,periodoTarifa:document.getElementById('periodoTarifa').value,autoconsumo:document.getElementById('autoconsumo').value,tarifa:document.getElementById('tarifa').value,costoKwp:document.getElementById('costoKwp').value,modoSistema:document.getElementById('modoSistema')?.value||'on-grid',marcaBateria:document.getElementById('marcaBateria')?.value||'',autonomiaDias:document.getElementById('autonomiaDias')?.value||1,profundidadDescarga:document.getElementById('profundidadDescarga')?.value||80,eficienciaBateria:document.getElementById('eficienciaBateria')?.value||90,bateriaV:document.getElementById('bateriaV')?.value||48,bateriaAh:document.getElementById('bateriaAh')?.value||100,costoBateriaKwh:document.getElementById('costoBateriaKwh')?.value||1800000})}
+function documentParameters(){return new URLSearchParams({consumo:d.c,hsp:d.h,cobertura:d.cv*100,pr:d.pr,modulo_wp:d.wp,voc:d.voc,coef_voc:d.co,temp_min:d.t,vdc_max:d.vm,dcac:d.ra,address:document.getElementById('address').value,lat:document.getElementById('lat').value,lng:document.getElementById('lng').value,cliente:document.getElementById('cliente').value,nasa:document.getElementById('nasaEvidence').textContent,operador:document.getElementById('operador').value,periodoTarifa:document.getElementById('periodoTarifa').value,autoconsumo:document.getElementById('autoconsumo').value,tarifa:document.getElementById('tarifa').value,costoKwp:document.getElementById('costoKwp').value,modoSistema:document.getElementById('modoSistema')?.value||'on-grid',marcaBateria:document.getElementById('marcaBateria')?.value||'',autonomiaDias:document.getElementById('autonomiaDias')?.value||1,profundidadDescarga:document.getElementById('profundidadDescarga')?.value||80,eficienciaBateria:document.getElementById('eficienciaBateria')?.value||90,bateriaV:document.getElementById('bateriaV')?.value||48,bateriaAh:document.getElementById('bateriaAh')?.value||100,costoBateriaKwh:document.getElementById('costoBateriaKwh')?.value||1800000,fraccionRespaldo:document.getElementById('fraccionRespaldo')?.value||50,cargasCriticas:document.getElementById('cargasCriticas')?.value||30})}
 document.body.insertAdjacentHTML('beforeend','<div class="modal" id="documentPreview"><div class="map-panel" style="height:min(820px,94vh);max-width:1080px"><div class="map-top"><h3 id="previewTitle">Vista previa</h3><button type="button" class="close" id="closePreview">Cerrar</button></div><iframe id="previewFrame" title="Vista previa del documento" style="width:100%;height:calc(100% - 120px);border:0;background:#fff"></iframe><div style="padding:10px;background:#24262c"><a id="confirmDownload" class="map-search" style="display:inline-block;text-decoration:none;color:#fff">Descargar archivo</a></div></div></div>');
 function previewDocument(title,previewUrl,downloadUrl){document.getElementById('previewTitle').textContent=title;document.getElementById('previewFrame').src=previewUrl;document.getElementById('confirmDownload').href=downloadUrl;document.getElementById('documentPreview').classList.add('show')}
 document.getElementById('closePreview').onclick=()=>{document.getElementById('documentPreview').classList.remove('show');document.getElementById('previewFrame').src='about:blank'};
@@ -131,7 +131,7 @@ document.getElementById('marcaBateria').addEventListener('change',e=>{const item
     required.forEach(([id,label])=>{const el=document.getElementById(id);if(!hasValue(el)){missing.push([el,label])}});
     const address=document.getElementById('address'),lat=document.getElementById('lat'),lng=document.getElementById('lng');
     if(!address.value||address.value==='Pendiente de seleccionar'||!lat.value||!lng.value)missing.push([document.getElementById('openMap'),'Ubicación del proyecto confirmada en Maps']);
-    if(document.getElementById('modoSistema')?.value==='off-grid'){
+    if(['off-grid','híbrido'].includes(document.getElementById('modoSistema')?.value)){
       [['marcaBateria','Marca de batería'],['autonomiaDias','Autonomía requerida'],['profundidadDescarga','Profundidad de descarga'],['eficienciaBateria','Eficiencia del banco'],['bateriaV','Tensión de batería'],['bateriaAh','Capacidad por batería'],['costoBateriaKwh','Costo del banco de baterías']].forEach(([id,label])=>{const el=document.getElementById(id);if(!hasValue(el))missing.push([el,label])});
     }
     if(!missing.length)return true;
@@ -146,5 +146,57 @@ document.getElementById('marcaBateria').addEventListener('change',e=>{const item
   });
   required.map(([id])=>document.getElementById(id)).filter(Boolean).forEach(el=>el.addEventListener('input',()=>el.classList.remove('missing-field')));
   document.getElementById('operador')?.addEventListener('change',e=>e.target.classList.remove('missing-field'));
+})();
+</script><script>
+/* Sistema híbrido: red + FV + respaldo LiFePO4, según la Fase 9 de FBInvernaderos. */
+(()=>{
+  const mode=document.getElementById('modoSistema'), batteryFields=document.getElementById('offGridFields');
+  if(!mode||!batteryFields)return;
+  if(!Array.from(mode.options).some(option=>option.value==='híbrido')){
+    mode.insertAdjacentHTML('beforeend','<option value="híbrido">Híbrido — red + baterías de respaldo</option>');
+  }
+  batteryFields.insertAdjacentHTML('beforeend',`<div id="hybridFields" hidden><label>Respaldo de batería <input id="fraccionRespaldo" type="number" min="0" max="100" value="50"><small>% de la autonomía solicitada</small></label><label>Cargas críticas <input id="cargasCriticas" type="number" min="0" max="100" value="30"><small>% de la demanda diaria</small></label><p>En modo híbrido la red cubre la energía no respaldada. El banco se dimensiona al mayor valor entre el respaldo configurado y las cargas críticas.</p></div>`);
+  const placement=document.querySelector('.battery-compare');
+  placement?.insertAdjacentHTML('afterend',`<article class="phase-card hybrid-calculator" id="hybridCalculator" hidden><h4>Calculadora de respaldo híbrido</h4><div class="value" id="hybridTarget">—</div><p>Energía mínima a respaldar</p><div class="hybrid-grid"><div><small>Respaldo configurado</small><strong id="hybridSupport">—</strong></div><div><small>Cargas críticas</small><strong id="hybridCritical">—</strong></div><div><small>Banco útil</small><strong id="hybridUsable">—</strong></div><div><small>Autonomía estimada</small><strong id="hybridAutonomy">—</strong></div></div><p class="compare-detail">La red continúa atendiendo la energía no respaldada. Validar el perfil de cargas, disponibilidad de red y protecciones antes de compra.</p></article>`);
+  document.head.insertAdjacentHTML('beforeend',`<style>#hybridFields{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}#hybridFields p{grid-column:1/-1;margin:0;color:#cbd0d4;font-size:11px;line-height:1.45}.hybrid-calculator{border-color:#4bb7cf88;background:linear-gradient(145deg,#133a4a99,#282a30)}.hybrid-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}.hybrid-grid div{padding:8px;border-radius:7px;background:#00000024}.hybrid-grid small{display:block;color:#cbd0d4;font-size:10px}.hybrid-grid strong{display:block;color:#bcecff;font-size:14px;margin-top:3px}</style>`);
+  const n=id=>Number(document.getElementById(id)?.value)||0;
+  const money=value=>'$ '+Math.round(value).toLocaleString('es-CO')+' COP';
+  function calculateHybrid(){
+    const daily=n('consumo')*n('cobertura')/100/30, autonomy=Math.max(.25,n('autonomiaDias')),
+      dod=Math.max(.5,Math.min(.95,n('profundidadDescarga')/100)), efficiency=Math.max(.7,Math.min(.98,n('eficienciaBateria')/100)),
+      support=Math.max(0,Math.min(100,n('fraccionRespaldo')))/100, critical=Math.max(0,Math.min(100,n('cargasCriticas')))/100,
+      voltage=Math.max(12,n('bateriaV')), ah=Math.max(20,n('bateriaAh')), unit=voltage*ah/1000,
+      supportEnergy=daily*autonomy*support, criticalEnergy=daily*autonomy*critical, target=Math.max(supportEnergy,criticalEnergy),
+      required=target/(dod*efficiency), series=Math.max(1,Math.ceil(48/voltage)), count=series*Math.ceil(Math.ceil(required/unit)/series),
+      nominal=count*unit, usable=nominal*dod*efficiency;
+    return {daily,autonomy,support,critical,voltage,unit,supportEnergy,criticalEnergy,target,series,count,parallel:Math.ceil(count/series),nominal,usable,actual:daily?usable/daily:0};
+  }
+  function hybridDiagram(b){
+    const diagram=document.querySelector('.diagram');
+    if(!diagram)return;
+    diagram.dataset.hybrid='1';
+    diagram.innerHTML=`<h3>Diagrama unifilar híbrido — red y respaldo</h3><svg viewBox="0 0 900 250" role="img" aria-label="Sistema solar híbrido con red y banco de baterías"><defs><marker id="hybridArrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="#58c8e4"/></marker></defs><g fill="#242a30" stroke="#58c8e4"><rect x="20" y="32" width="150" height="50" rx="8"/><rect x="230" y="32" width="165" height="50" rx="8"/><rect x="460" y="32" width="150" height="50" rx="8"/><rect x="675" y="32" width="150" height="50" rx="8"/><rect x="230" y="155" width="165" height="50" rx="8"/><rect x="675" y="155" width="150" height="50" rx="8"/></g><g fill="#fff" font-family="Arial" font-size="13" text-anchor="middle"><text x="95" y="55">ARREGLO FV</text><text x="95" y="73">Generación solar</text><text x="312" y="55">INVERSOR HÍBRIDO</text><text x="312" y="73">FV · red · respaldo</text><text x="535" y="55">TABLERO AC</text><text x="535" y="73">Protecciones</text><text x="750" y="55">CARGAS</text><text x="750" y="73">${b.daily.toFixed(1)} kWh/día</text><text x="312" y="178">BANCO LiFePO4</text><text x="312" y="196">${b.count} und · ${b.usable.toFixed(1)} kWh útiles</text><text x="750" y="178">RED ELÉCTRICA</text><text x="750" y="196">Respaldo complementario</text></g><path d="M170 57H230M395 57H460M610 57H675M312 82V155M675 180H395" fill="none" stroke="#58c8e4" stroke-width="3" marker-end="url(#hybridArrow)"/></svg>`;
+  }
+  function updateHybrid(){
+    const isHybrid=mode.value==='híbrido', isStorage=isHybrid||mode.value==='off-grid';
+    batteryFields.hidden=!isStorage;
+    document.getElementById('hybridFields').hidden=!isHybrid;
+    const card=document.getElementById('hybridCalculator'); if(card)card.hidden=!isHybrid;
+    if(!isHybrid)return;
+    const b=calculateHybrid(), brand=document.getElementById('marcaBateria').value, bank=b.nominal*n('costoBateriaKwh'),
+      pv=(Math.ceil((n('consumo')*n('cobertura')/100/30)/(n('hsp')*n('pr'))*1000/n('wp'))*n('wp')/1000)*n('costoKwp');
+    document.getElementById('hybridTarget').textContent=b.target.toFixed(2)+' kWh';
+    document.getElementById('hybridSupport').textContent=(b.support*100).toFixed(0)+'% · '+b.supportEnergy.toFixed(2)+' kWh';
+    document.getElementById('hybridCritical').textContent=(b.critical*100).toFixed(0)+'% · '+b.criticalEnergy.toFixed(2)+' kWh';
+    document.getElementById('hybridUsable').textContent=b.usable.toFixed(2)+' kWh';
+    document.getElementById('hybridAutonomy').textContent=b.actual.toFixed(2)+' días';
+    document.getElementById('batteryCompareTitle').textContent='Alternativa híbrida con respaldo';
+    document.getElementById('batteryCompareRef').textContent=brand+' · '+b.count+' unidades · '+b.series+'S × '+b.parallel+'P';
+    document.getElementById('batteryPrice').textContent=money(bank); document.getElementById('storageTotal').textContent=money(pv+bank);
+    document.getElementById('batteryCompareDetail').textContent='Respalda '+(b.support*100).toFixed(0)+'% de la autonomía sin bajar de las cargas críticas ('+(b.critical*100).toFixed(0)+'%). Banco: '+b.nominal.toFixed(2)+' kWh nominales y '+b.usable.toFixed(2)+' kWh útiles.';
+    hybridDiagram(b);
+  }
+  ['modoSistema','consumo','cobertura','hsp','pr','wp','costoKwp','marcaBateria','autonomiaDias','profundidadDescarga','eficienciaBateria','bateriaV','bateriaAh','costoBateriaKwh','fraccionRespaldo','cargasCriticas'].forEach(id=>{const el=document.getElementById(id);el?.addEventListener('input',updateHybrid);el?.addEventListener('change',updateHybrid)});
+  updateHybrid();
 })();
 </script></body></html>
