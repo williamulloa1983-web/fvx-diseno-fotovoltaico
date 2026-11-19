@@ -15,6 +15,7 @@ from urllib.request import Request, urlopen
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from PIL import Image, ImageDraw, ImageFont
 from flask import Flask, Response, render_template, request, url_for
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
@@ -550,6 +551,7 @@ def _draw_site_structure_page(pdf, d, r, site, page=3):
 
 @app.route("/evidencia-satelital.png")
 def satellite_preview():
+    """Lámina satelital identificada del predio, no una imagen cruda del mapa."""
     try:
         lat, lng = float(request.args["lat"]), float(request.args["lng"])
         if not (-90 <= lat <= 90 and -180 <= lng <= 180): raise ValueError
@@ -558,7 +560,40 @@ def satellite_preview():
     image = _satellite_image(lat, lng)
     if not image:
         return Response("Imagen satelital no disponible", status=502)
-    return Response(image.getvalue(), mimetype="image/png")
+    try:
+        base = Image.open(image).convert("RGBA")
+        draw = ImageDraw.Draw(base, "RGBA")
+        width, height = base.size
+        try:
+            title_font = ImageFont.truetype("arialbd.ttf", max(22, width // 31))
+            text_font = ImageFont.truetype("arial.ttf", max(14, width // 55))
+            small_font = ImageFont.truetype("arial.ttf", max(12, width // 70))
+        except OSError:
+            title_font = text_font = small_font = ImageFont.load_default()
+        client = request.args.get("cliente", "Cliente por confirmar").strip() or "Cliente por confirmar"
+        address = request.args.get("address", "Ubicación confirmada").strip() or "Ubicación confirmada"
+        # Banda de identificación: mantiene la evidencia geográfica y hace
+        # que la lámina se pueda archivar fuera de la aplicación.
+        top = max(112, height // 6)
+        draw.rectangle((0, 0, width, top), fill=(15, 20, 27, 226))
+        draw.rectangle((0, top - 6, width, top), fill=(245, 121, 25, 255))
+        draw.text((24, 18), "TWE WELT ENERGY  |  EVIDENCIA SATELITAL", font=title_font, fill=(255, 199, 125, 255))
+        draw.text((24, 53), f"Cliente: {client[:70]}", font=text_font, fill=(255, 255, 255, 255))
+        draw.text((24, 78), address[:105], font=small_font, fill=(220, 225, 230, 255))
+        draw.text((24, top - 28), f"Coordenadas verificadas: {lat:.6f}, {lng:.6f}", font=small_font, fill=(255, 214, 174, 255))
+        # Marcador preciso en el centro de la imagen satelital consultada.
+        cx, cy = width // 2, (height + top) // 2
+        draw.ellipse((cx - 23, cy - 23, cx + 23, cy + 23), fill=(15, 20, 27, 105), outline=(255, 255, 255, 220), width=2)
+        draw.ellipse((cx - 11, cy - 11, cx + 11, cy + 11), fill=(235, 73, 40, 255), outline=(255, 232, 220, 255), width=2)
+        draw.line((cx - 38, cy, cx + 38, cy), fill=(255, 255, 255, 190), width=2)
+        draw.line((cx, cy - 38, cx, cy + 38), fill=(255, 255, 255, 190), width=2)
+        footer = "Punto de referencia del proyecto · Validar implantación y límites prediales en visita técnica"
+        draw.rounded_rectangle((20, height - 44, width - 20, height - 15), radius=8, fill=(15, 20, 27, 210))
+        draw.text((32, height - 36), footer, font=small_font, fill=(230, 234, 237, 255))
+        output = BytesIO(); base.convert("RGB").save(output, format="PNG", optimize=True); output.seek(0)
+        return Response(output.getvalue(), mimetype="image/png")
+    except Exception:
+        return Response(image.getvalue(), mimetype="image/png")
 
 @app.route("/memoria-calculo.pdf")
 def calculation_memory_pdf():
