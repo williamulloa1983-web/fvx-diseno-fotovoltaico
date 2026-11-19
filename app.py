@@ -122,12 +122,49 @@ def battery_design(d, source):
             "critical_fraction": critical_fraction, "supported_energy": supported_energy,
             "critical_energy": critical_energy, "required_energy": required_energy}
 
+def site_and_structure_design(d, r, source):
+    """Predimensionamiento de cubierta, plano de sitio y estructura (fases 10--12).
+
+    Es una ayuda de prefactibilidad: los coeficientes de sombra y viento deben
+    validarse durante la visita técnica y por el responsable estructural.
+    """
+    shade_factor = _number(source, "factorSombra", 100, 10, 100) / 100
+    roof_area = _number(source, "areaDisponible", 60, 1, 100000)
+    tilt = _number(source, "inclinacion", 10, 0, 60)
+    modules_row = int(_number(source, "modulosFila", 8, 1, 100))
+    support_spacing = _number(source, "separacionApoyos", 1.4, .4, 5)
+    structure_weight = _number(source, "pesoEstructura", 12, 1, 80)
+    wind_pressure = _number(source, "presionViento", .8, .1, 5)
+    orientation = source.get("orientacion", "Sur").strip() or "Sur"
+    # Valor conservador para módulos contemporáneos de 550 Wp.
+    module_area = _number(source, "areaModulo", 2.58, 1, 5)
+    modules = int(r["modulos"])
+    occupied_area = modules * module_area
+    rows = ceil(modules / modules_row)
+    rail_length = rows * 2 * modules_row * 1.15
+    supports = max(4, ceil(rail_length / support_spacing))
+    dead_load = occupied_area * structure_weight
+    wind_force = occupied_area * wind_pressure
+    support_demand = (dead_load + wind_force) / supports
+    adjusted_hsp = d["hsp"] * shade_factor
+    possible_modules = floor(roof_area / module_area)
+    return {
+        "shade_factor": shade_factor, "roof_area": roof_area, "tilt": tilt,
+        "orientation": orientation, "modules_row": modules_row,
+        "support_spacing": support_spacing, "structure_weight": structure_weight,
+        "wind_pressure": wind_pressure, "module_area": module_area,
+        "occupied_area": occupied_area, "rows": rows, "rail_length": rail_length,
+        "supports": supports, "dead_load": dead_load, "wind_force": wind_force,
+        "support_demand": support_demand, "adjusted_hsp": adjusted_hsp,
+        "possible_modules": possible_modules, "area_ok": possible_modules >= modules,
+    }
+
 def _build_excel_fallback(payload):
     """Libro compatible con servidores web sin el runtime local de Codex."""
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
     from openpyxl.utils import get_column_letter
-    wb = Workbook(); summary = wb.active; summary.title = "Resumen"; calc = wb.create_sheet("Calculo"); bat = wb.create_sheet("Baterias")
+    wb = Workbook(); summary = wb.active; summary.title = "Resumen"; calc = wb.create_sheet("Calculo"); bat = wb.create_sheet("Baterias"); site = wb.create_sheet("Sitio y estructura")
     orange, navy, pale, thin = "F57C17", "134D80", "EAF1F5", Side(style="thin", color="B7C8D6")
     def setup(ws, title):
         ws.sheet_view.showGridLines = False; ws.merge_cells("A2:D2"); ws["A2"] = title; ws["A2"].font = Font(name="Arial", size=15, bold=True, color=navy)
@@ -147,6 +184,8 @@ def _build_excel_fallback(payload):
     table(calc, 14, ["Resultado", "Valor", "Unidad"], [("Demanda diaria", payload["consumo"] * payload["coverage"] / 30, "kWh/día"), ("Potencia FV", payload["pdc"], "kWp"), ("Módulos", payload["modules"], "unidades"), ("Producción anual", payload["annual"], "kWh/año")])
     setup(bat, "Banco de baterías y respaldo energético")
     table(bat, 5, ["Variable", "Valor", "Unidad"], [("Tipo de sistema", payload.get("mode", "on-grid"), ""), ("Marca / referencia", payload.get("batteryBrand", "No aplica"), ""), ("Autonomía solicitada", payload.get("autonomy", 0), "días"), ("Respaldo configurado", payload.get("supportFraction", 0) * 100, "%"), ("Cargas críticas", payload.get("criticalFraction", 0) * 100, "% de demanda"), ("Energía mínima respaldada", payload.get("batteryRequiredEnergy", 0), "kWh"), ("Tensión por batería", payload.get("batteryV", 0), "V"), ("Capacidad por batería", payload.get("batteryAh", 0), "Ah"), ("Banco seleccionado", payload.get("batteryCount", 0), "unidades"), ("Configuración", f"{payload.get('batterySeries', 0)}S x {payload.get('batteryParallel', 0)}P", ""), ("Capacidad nominal", payload.get("batteryNominal", 0), "kWh"), ("Capacidad útil", payload.get("batteryUsable", 0), "kWh"), ("Autonomía calculada", payload.get("batteryAutonomy", 0), "días")])
+    setup(site, "Viabilidad de sitio, sombras y estructura")
+    table(site, 5, ["Verificación", "Valor", "Unidad"], [("Orientación de cubierta", payload.get("orientation", "Por confirmar"), ""), ("Inclinación", payload.get("tilt", 0), "°"), ("Factor solar local", payload.get("shadeFactor", 1) * 100, "%"), ("HSP equivalente local", payload.get("adjustedHsp", 0), "h/día"), ("Área disponible", payload.get("roofArea", 0), "m²"), ("Área ocupada por FV", payload.get("occupiedArea", 0), "m²"), ("Módulos posibles por área", payload.get("possibleModules", 0), "unidades"), ("Filas / módulos por fila", f"{payload.get('rows', 0)} / {payload.get('modulesRow', 0)}", ""), ("Longitud preliminar de riel", payload.get("railLength", 0), "m"), ("Apoyos preliminares", payload.get("supports", 0), "unidades"), ("Carga muerta estructura", payload.get("deadLoad", 0), "kg"), ("Succión global de viento", payload.get("windForce", 0), "kN"), ("Demanda por apoyo", payload.get("supportDemand", 0), "referencial")])
     output = BytesIO(); wb.save(output); return output.getvalue()
 
 def report_image(r):
@@ -247,6 +286,7 @@ def spreadsheet():
     def number(value):
         return float(str(value).replace(".", "").replace(",", "."))
     battery = battery_design(d, request.args)
+    site = site_and_structure_design(d, r, request.args)
     payload = {
         "client": request.args.get("cliente", "Por confirmar"),
         "address": request.args.get("address", "Pendiente de seleccionar"),
@@ -269,6 +309,12 @@ def spreadsheet():
         "batteryAutonomy": battery["actual_autonomy"], "batteryRequired": battery["required"],
         "supportFraction": battery["support_fraction"], "criticalFraction": battery["critical_fraction"],
         "batteryRequiredEnergy": battery["required_energy"],
+        "orientation": site["orientation"], "tilt": site["tilt"], "shadeFactor": site["shade_factor"],
+        "adjustedHsp": site["adjusted_hsp"], "roofArea": site["roof_area"],
+        "occupiedArea": site["occupied_area"], "possibleModules": site["possible_modules"],
+        "rows": site["rows"], "modulesRow": site["modules_row"], "railLength": site["rail_length"],
+        "supports": site["supports"], "deadLoad": site["dead_load"], "windForce": site["wind_force"],
+        "supportDemand": site["support_demand"],
     }
     node = os.environ.get("FVX_NODE", r"C:\Users\Usuario\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe")
     if not os.path.exists(node): node = "node"
@@ -468,6 +514,40 @@ def _draw_location_and_diagram(pdf, r, address, lat, lng, page_title, calculatio
         y = _section(pdf, 270, "Proceso de cálculo")
         _table(pdf, 52, y, 495, ["Fase", "Resultado"], calculation_rows, [40, 455], row_height=17)
 
+def _draw_site_structure_page(pdf, d, r, site, page=3):
+    """Anexo común de las fases 10, 11 y 12 para documentos del cliente."""
+    _header(pdf, "Anexo técnico: cubierta, localización y montaje", page)
+    page_h = A4[1]
+    y = _section(pdf, page_h - 150, "Análisis local de cubierta y sombras")
+    local_rows = [
+        ("Orientación / inclinación declarada", f"{site['orientation']} / {fmt(site['tilt'], 0)}°"),
+        ("Factor solar local ingresado", f"{fmt(site['shade_factor'] * 100, 0)} %"),
+        ("HSP NASA del diseño", f"{fmt(d['hsp'], 2)} h/día"),
+        ("HSP equivalente local", f"{fmt(site['adjusted_hsp'], 2)} h/día"),
+        ("Área disponible / ocupada", f"{fmt(site['roof_area'])} / {fmt(site['occupied_area'])} m²"),
+        ("Capacidad por área", f"{site['possible_modules']} módulos posibles; diseño requiere {r['modulos']}"),
+    ]
+    y = _table(pdf, 52, y, 495, ["Variable", "Resultado"], local_rows, [235, 260], row_height=22)
+    pdf.setFillColor(MUTED); pdf.setFont("Helvetica", 7.4)
+    pdf.drawString(52, y - 12, _safe("El factor local es una estimación previa. Obstáculos no visibles y sombras estacionales requieren verificación en visita técnica."))
+    y = _section(pdf, y - 44, "Plano de localización y análisis solar")
+    pdf.setFillColor(TEXT); pdf.setFont("Helvetica", 9)
+    pdf.drawString(52, y, _safe("La vista satelital, dirección y coordenadas confirmadas se incorporan en la página anterior como evidencia del predio."))
+    pdf.drawString(52, y - 16, _safe("El plano debe validarse antes de fijar la implantación final, retiros, pasillos de mantenimiento y rutas de cableado."))
+    y = _section(pdf, y - 52, "Predimensionamiento de estructura de montaje")
+    structure_rows = [
+        ("Arreglo sobre cubierta", f"{site['rows']} filas de hasta {site['modules_row']} módulos"),
+        ("Longitud preliminar de riel", f"{fmt(site['rail_length'])} m"),
+        ("Apoyos / anclajes preliminares", f"{site['supports']} unidades"),
+        ("Peso propio de estructura declarado", f"{fmt(site['structure_weight'])} kg/m²"),
+        ("Carga muerta global", f"{fmt(site['dead_load'])} kg"),
+        ("Presión de viento declarada", f"{fmt(site['wind_pressure'])} kN/m²"),
+        ("Succión global / demanda por apoyo", f"{fmt(site['wind_force'])} kN / {fmt(site['support_demand'])} referencial"),
+    ]
+    y = _table(pdf, 52, y, 495, ["Verificación", "Resultado"], structure_rows, [235, 260], row_height=21)
+    pdf.setFillColor(MUTED); pdf.setFont("Helvetica", 7.4)
+    pdf.drawString(52, y - 14, _safe("Prefactibilidad: no selecciona perfiles, pernos ni soldaduras. Requiere memoria estructural firmada y revisión de la cubierta según NSR-10."))
+
 @app.route("/evidencia-satelital.png")
 def satellite_preview():
     try:
@@ -488,6 +568,7 @@ def calculation_memory_pdf():
     except ValueError as exc:
         return Response(str(exc), status=400)
     battery = battery_design(d, request.args)
+    site = site_and_structure_design(d, r, request.args)
     system_name = ("Sistema fotovoltaico off-grid con almacenamiento" if battery["offgrid"]
                    else ("Sistema fotovoltaico híbrido con red y respaldo" if battery["hybrid"] else "Sistema fotovoltaico on-grid"))
     buffer = BytesIO(); pdf = canvas.Canvas(buffer, pagesize=A4); page_h = A4[1]
@@ -527,6 +608,7 @@ def calculation_memory_pdf():
             ("Capacidad nominal / útil", f"{fmt(battery['nominal'])} / {fmt(battery['usable'])} kWh"),
         ], [225, 230], row_height=18)
     pdf.showPage(); _draw_location_and_diagram(pdf, r, address, lat, lng, "Memoria de cálculo fotovoltaico", _calculation_rows(d, r), battery)
+    pdf.showPage(); _draw_site_structure_page(pdf, d, r, site)
     pdf.save(); buffer.seek(0)
     disposition = "inline" if request.args.get("preview") == "1" else "attachment"
     filename = f"memoria-calculo-{_filename_client(request.args)}.pdf"
@@ -540,6 +622,7 @@ def quotation_pdf():
     except ValueError as exc:
         return Response(str(exc), status=400)
     battery = battery_design(d, request.args)
+    site = site_and_structure_design(d, r, request.args)
     try:
         tariff = float(request.args.get("tarifa", 0) or 0); cost_kwp = float(request.args.get("costoKwp", 4200000) or 4200000)
         battery_cost_kwh = float(request.args.get("costoBateriaKwh", 1800000) or 1800000)
@@ -588,6 +671,7 @@ def quotation_pdf():
     pdf.setFillColor(MUTED); pdf.setFont("Helvetica", 7.2); pdf.drawString(52, y - 16, f"Ahorro calculado sobre {self_consumption*100:.0f}% de autoconsumo. La energía excedente no se valora como ahorro hasta confirmar su compensación.")
     pdf.drawString(52, y - 28, "Tarifa a validar contra la factura vigente del cliente y el tarifario oficial del operador de red.")
     pdf.showPage(); _draw_location_and_diagram(pdf, r, address, lat, lng, "Plano de implantación y diagrama unifilar", battery=battery)
+    pdf.showPage(); _draw_site_structure_page(pdf, d, r, site)
     pdf.save(); buffer.seek(0)
     disposition = "inline" if request.args.get("preview") == "1" else "attachment"
     filename = f"cotizacion-formal-{_filename_client(request.args)}.pdf"

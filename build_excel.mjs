@@ -8,6 +8,7 @@ const wb = Workbook.create();
 const summary = wb.worksheets.add("Resumen");
 const calc = wb.worksheets.add("Calculo");
 const batteries = wb.worksheets.add("Baterias");
+const site = wb.worksheets.add("Sitio y estructura");
 const orange = "#F57C17", navy = "#134D80", pale = "#EAF1F5", line = "#B7C8D6";
 const baseFont = { name: "Arial", size: 10, color: "#17191D" };
 
@@ -145,6 +146,30 @@ batteries.getRange("A22:D23").format = { font: baseFont, wrapText: true, vertica
 batteries.getRange("A22:A23").format.font = { name: "Arial", size: 10, bold: true, color: navy };
 batteries.getRange("B22").format.numberFormat = "#,##0.00";
 batteries.freezePanes.freezeRows(5);
+
+site.showGridLines = false;
+site.tabColor = "#5B7285";
+setWidths(site);
+site.mergeCells("A2:D2"); site.getRange("A2:D2").values = [["Viabilidad de sitio, cubierta y estructura"]];
+site.getRange("A2:D2").format = { font: { name: "Arial", size: 15, bold: true, color: navy }, verticalAlignment: "center" };
+site.getRange("A3:D3").format.borders = { bottom: { style: "medium", color: orange } };
+heading(site, "A5:C5", "Análisis local de cubierta y sombras");
+site.getRange("A6:C19").values = [
+  ["Variable", "Valor", "Unidad"], ["Orientación", data.orientation || "Por confirmar", ""],
+  ["Inclinación", data.tilt || 0, "°"], ["Factor solar local", (data.shadeFactor || 0) * 100, "%"],
+  ["HSP equivalente local", data.adjustedHsp || 0, "h/día"], ["Área disponible", data.roofArea || 0, "m²"],
+  ["Área ocupada FV", data.occupiedArea || 0, "m²"], ["Módulos posibles por área", data.possibleModules || 0, "unidades"],
+  ["Filas de módulos", data.rows || 0, "filas"], ["Módulos por fila", data.modulesRow || 0, "unidades"],
+  ["Longitud preliminar de riel", data.railLength || 0, "m"], ["Apoyos preliminares", data.supports || 0, "unidades"],
+  ["Carga muerta global", data.deadLoad || 0, "kg"], ["Succión global de viento", data.windForce || 0, "kN"],
+];
+site.getRange("A6:C6").format = { fill: navy, font: { name: "Arial", size: 10, bold: true, color: "#FFFFFF" } };
+site.getRange("A6:C19").format.font = baseFont; tableStyle(site, "A6:C19");
+site.getRange("B7:B19").format.fill = "#FFF7ED";
+site.getRange("A21:D23").values = [["Nota técnica", "El análisis local no reemplaza la visita de campo, el estudio de sombras ni el diseño estructural firmado.", "", ""], ["NSR-10", "Confirmar estructura existente, anclajes, conexiones y acciones de viento antes de construcción.", "", ""], ["Plano", "La ubicación y evidencia satelital se incluyen en los documentos PDF del proyecto.", "", ""]];
+site.getRange("A21:D23").format = { font: baseFont, wrapText: true, verticalAlignment: "center" }; tableStyle(site, "A21:D23");
+site.getRange("A21:A23").format.font = { name: "Arial", size: 10, bold: true, color: navy };
+site.freezePanes.freezeRows(5);
 
 wb.recalculate();
 await fs.mkdir(new URL(".", `file://${outputPath.replace(/\\/g, "/")}`).pathname, { recursive: true }).catch(() => {});
